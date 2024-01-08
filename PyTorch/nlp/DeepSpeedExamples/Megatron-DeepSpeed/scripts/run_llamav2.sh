@@ -12,8 +12,8 @@ set -ex
 
 # ----------------------
 # Configurable parameters
-DATA_DIR=${HL_DATA_DIR_ROOT:-/data/bigscience/oscar-en/}
-DATA_FILE_PREFIX=${HL_DATA_FILE_PREFIX:-meg-gpt2_text_document}
+DATA_DIR=${HL_DATA_DIR_ROOT:-/data/oscar-en-10k/}
+DATA_FILE_PREFIX=${HL_DATA_FILE_PREFIX:-text}
 NUM_NODES=${HL_NUM_NODES:-1}
 DP=${HL_DP:-1}
 TP=${HL_TP:-8}
@@ -45,6 +45,8 @@ SEQ_PARALLEL=${HL_SEQ_PARALLEL:-0} #set to 1 to enable sequence parallelism
 OPTIMIZER=${HL_OPTIMIZER:-adamw}
 USE_FUSED_SDPA=${HL_USE_FUSED_SDPA:-false}
 USE_FUSED_SDPA_WITH_RECOMPUTE=${HL_USE_FUSED_SDPA_WITH_RECOMPUTE:-true}
+FP8_ENABLE=${HL_FP8_ENABLE:-0}
+
 # ----------------------
 
 if [[ -z "$MODEL_REFERENCES_ROOT" ]]; then
@@ -151,6 +153,13 @@ if [ ! -z "$QNPU_DIR" ]; then
     CMD="source ${QNPU_DIR}/activate ;"
 fi
 
+if [ ${FP8_ENABLE} -eq 1 ]; then
+    FP8_PARAMS="--use-hpu-fp8-transformer-engine --cache-fp8-weight --cache-fp8-weight-fwd true --flatten-linear-operands"
+else
+    FP8_PARAMS=""
+fi
+
+
 CMD="${CMD} \
     cd $MODEL_DIR && \
     python3 -u ./pretrain_llama.py \
@@ -202,7 +211,7 @@ CMD="${CMD} \
     --use-fused-sdpa $USE_FUSED_SDPA \
     --use-fused-sdpa-with-recompute $USE_FUSED_SDPA_WITH_RECOMPUTE \
     $KILL_SWITCH_ARG \
-    --bf16"
+    --bf16 ${FP8_PARAMS}"
 
 if [ $USE_HPU -eq 1 ]
 then

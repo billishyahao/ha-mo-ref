@@ -454,7 +454,8 @@ class ColumnParallelLinear(torch.nn.Module):
                 self.input_size,
                 self.output_size_per_partition,
                 skip_weight_param_allocation=True,
-                bias = True,
+                # TODO: yahao
+                bias = False,
                 minimize_memory=not args.cache_fp8_weight)
             self.output_parallel_linear_fp8 = FP8ModuleRunner(linear_fp8, args.use_hpu_graphs, args.hpu_fp8_measure_interval, args.cache_fp8_weight_fwd)
         self.output_parallel_linear = F.linear
