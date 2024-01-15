@@ -12,8 +12,8 @@ set -ex
 
 # ----------------------
 # Configurable parameters
-DATA_DIR=${HL_DATA_DIR_ROOT:-/data/oscar-en-10k/}
-DATA_FILE_PREFIX=${HL_DATA_FILE_PREFIX:-text}
+DATA_DIR=${HL_DATA_DIR_ROOT:-/data/oscar-en/}
+DATA_FILE_PREFIX=${HL_DATA_FILE_PREFIX:-meg-gpt2_text_document}
 NUM_NODES=${HL_NUM_NODES:-1}
 DP=${HL_DP:-1}
 TP=${HL_TP:-8}
@@ -34,7 +34,7 @@ USE_HPU=${HL_USE_HPU:-1}
 CKP_ACT=${HL_CKP_ACT:-0}
 UNIV_CP=${HL_UNIV_CP:-0}
 QNPU_DIR=${HL_QNPU_DIR:-}
-LOG_INTERVAL=${HL_LOG_INTERVAL:-10}
+LOG_INTERVAL=${HL_LOG_INTERVAL:-1}
 LLAMA_VER=${HL_LLAMA_VER:-70}
 N_LAYERS=${HL_NUM_LAYERS:-80}
 N_GPU_PER_NODE=${HL_NGPU_PER_NODE:-8}
@@ -179,9 +179,9 @@ CMD="${CMD} \
     --seq-length $SEQ_LEN \
     --micro-batch-size ${MICRO_BATCH} \
     --global-batch-size ${GLOBAL_BATCH} \
-    --train-iters 500000 \
+    --train-iters 10000 \
     --log-interval ${LOG_INTERVAL} \
-    --eval-iters 100 \
+    --eval-iters 0 \
     --eval-interval 1000 \
     --data-path ${DATA_PATH} \
     --vocab-file $DATA_DIR/gpt2-vocab.json \
@@ -193,7 +193,7 @@ CMD="${CMD} \
     --lr 1.5e-4 \
     --min-lr 1.5e-5 \
     --lr-decay-style cosine \
-    --lr-warmup-iters 2000 \
+    --lr-warmup-iters 0 \
     --clip-grad 1.0 \
     --weight-decay 0.1 \
     --tensorboard-dir $TENSORBOARD_DIR \

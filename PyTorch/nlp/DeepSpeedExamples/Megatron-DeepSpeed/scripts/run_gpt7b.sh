@@ -8,8 +8,8 @@ set -ex
 
 # ----------------------
 # Configurable parameters
-DATA_DIR=${HL_DATA_DIR_ROOT:-/data/oscar-en-10k/}
-DATA_FILE_PREFIX=${HL_DATA_FILE_PREFIX:-text}
+DATA_DIR=${HL_DATA_DIR_ROOT:-/data/oscar-en/}
+DATA_FILE_PREFIX=${HL_DATA_FILE_PREFIX:-meg-gpt2_text_document}
 NUM_NODES=${HL_NUM_NODES:-1}
 DP=${HL_DP:-2}
 TP=${HL_TP:-4}
@@ -31,13 +31,17 @@ CKP_ACT=${HL_CKP_ACT:-0}
 RAMPUP_BS=${HL_RAMPUP_BS:-1}
 UNIV_CP=${HL_UNIV_CP:-0}
 QNPU_DIR=${HL_QNPU_DIR:-}
+TRAIN_ITER=${HL_TRAIN_ITERS:-10}
 LOG_INTERVAL=${HL_LOG_INTERVAL:-10}
-N_LAYERS=${HL_NUM_LAYERS:-40}
+N_LAYERS=${HL_NUM_LAYERS:-32}
 N_GPU_PER_NODE=${HL_NGPU_PER_NODE:-8}
 ZERO_STAGE=${HL_ZERO_STAGE:-0}
 PROFILE=${HL_PROFILE:-} #provide either of pt, pt-full, hltv such as HL_PROFILE=hltv
 SEQ_PARALLEL=${HL_SEQ_PARALLEL:-0} #set to 1 to enable sequence parallelism
 OPTIMIZER=${HL_OPTIMIZER:-adamw}
+USE_FUSED_SDPA=${HL_USE_FUSED_SDPA:-false}
+USE_FUSED_SDPA_WITH_RECOMPUTE=${HL_USE_FUSED_SDPA_WITH_RECOMPUTE:-true}
+FP8_ENABLE=${HL_FP8_ENABLE:-0}
 # ----------------------
 
 if [[ -z "$MODEL_REFERENCES_ROOT" ]]; then
@@ -54,7 +58,7 @@ NUM_GPUs=$(($DP * $TP * $PP))
 
 # Bloom-13B model architecture
 NLAYERS=${N_LAYERS} # must be divisible by PP
-NHIDDEN=5120
+NHIDDEN=4096
 NHEADS=32 # must be divisible by TP
 FFN_HIDDEN_SIZE=$(($NHIDDEN * 4))
 
@@ -92,8 +96,40 @@ if [ $SEQ_PARALLEL -eq 1 ]; then
     PARTITIONED_MODE="false"
 fi
 
-# create DS config
-DS_CONFIG=${OUTPUT_DIR}/ds_config.json
+DS_CONFIG=ds_config.json
+
+# debug
+DS_COMMS_LOGGER=
+if [ "${COMMS_LOGGER}" == "true" ]; then
+    DS_COMMS_LOGGER="
+        \"comms_logger\": {
+        \"enabled\": true,
+        \"verbose\": true,
+        \"prof_all\": true,
+        \"debug\": true
+        },"
+fi
+DS_FLOPS_PROFILER=
+if [ "${FLOPS_PROFILER}" == "true" ]; then
+    DS_FLOPS_PROFILER="
+        \"flops_profiler\": {
+            \"enabled\": true,
+            \"profile_step\": 1,
+            \"module_depth\": -1,
+            \"top_modules\": 1,
+            \"detailed\": true,
+            \"output_file\": null
+        },"
+fi
+DATA_TYPE=
+if [ ${ZERO_STAGE} -eq 1 ]; then
+    DATA_TYPE="
+      \"data_types\":{
+        \"grad_accum_dtype\":\"fp32\"
+      },
+    "
+fi
+
 cat << EOT > $DS_CONFIG
 {
   "train_batch_size" : $GLOBAL_BATCH,
@@ -103,9 +139,14 @@ cat << EOT > $DS_CONFIG
   "zero_optimization": {
     "stage": $ZERO_STAGE
   },
-  "bf16": {"enabled": true},
+  "bf16": {
+    "enabled": true,
+    "accumulate_grads_via_hooks": true
+  },
   "fp16": {"enabled": false},
-  "wall_clock_breakdown": false,
+  "wall_clock_breakdown": true,
+  "memory_breakdown": false,
+  ${DATA_TYPE}
   "pipeline": {
     "pipe_partitioned": $PARTITIONED_MODE,
     "grad_partitioned": $PARTITIONED_MODE
@@ -146,9 +187,9 @@ CMD="${CMD} \
     --max-position-embeddings $SEQ_LEN \
     --micro-batch-size ${MICRO_BATCH} \
     --global-batch-size ${GLOBAL_BATCH} \
-    --train-samples 300_000_000 \
+    --train-iters ${TRAIN_ITER} \
     --log-interval ${LOG_INTERVAL} \
-    --eval-iters 0 \
+    --eval-iters 20 \
     --eval-interval 100 \
     --data-path ${DATA_PATH} \
     --data-impl mmap \
@@ -157,13 +198,11 @@ CMD="${CMD} \
     --merge-file $DATA_DIR/gpt2-merges.txt \
     --optimizer ${OPTIMIZER} \
     --adam-beta1 0.9 \
-    --adam-beta2 0.999 \
-    --adam-eps 1e-8 \
-    --lr 1e-4 \
-    --min-lr 1e-5 \
+    --adam-beta2 0.95 \
+    --adam-eps 1e-6 \
+    --lr 3e-4 \
     --lr-decay-style cosine \
-    --lr-decay-samples 126_953_125 \
-    --lr-warmup-samples 216_320 \
+    --lr-warmup-iters 0 \
     --clip-grad 1.0 \
     --weight-decay 0.1 \
     --tensorboard-dir $TENSORBOARD_DIR \
@@ -178,8 +217,10 @@ CMD="${CMD} \
     --no-masked-softmax-fusion \
     --no-bias-gelu-fusion \
     --no-bias-dropout-fusion \
+    --use-fused-sdpa $USE_FUSED_SDPA \
+    --use-fused-sdpa-with-recompute $USE_FUSED_SDPA_WITH_RECOMPUTE \
     $KILL_SWITCH_ARG \
-    --bf16"
+    --bf16 ${FP8_PARAMS}"
 
 if [ $USE_HPU -eq 1 ]
 then
@@ -195,11 +236,6 @@ if [ $UNIV_CP -eq 1 ]
 then
     echo "Loading Universal Checkpoint from ${CHECKPOINTS_DIR}"
     CMD="${CMD} --universal-checkpoint"
-fi
-
-if [ $RAMPUP_BS -eq 1 ]
-then
-    CMD="${CMD} --rampup-batch-size 16 16 5_000_000"
 fi
 
 if [ $CHECKPOINT_SAVE -eq 1 ]

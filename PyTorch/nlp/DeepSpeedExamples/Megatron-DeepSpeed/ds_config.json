@@ -1,0 +1,25 @@
+{
+  "train_batch_size" : 1024,
+  "train_micro_batch_size_per_gpu": 1,
+  "steps_per_print": 1,
+  "gradient_clipping": 1.0,
+  "zero_optimization": {
+    "stage": 1
+  },
+  "bf16": {
+    "enabled": true,
+    "accumulate_grads_via_hooks": true
+  },
+  "fp16": {"enabled": false},
+  "wall_clock_breakdown": true,
+  "memory_breakdown": false,
+  
+      "data_types":{
+        "grad_accum_dtype":"fp32"
+      },
+    
+  "pipeline": {
+    "pipe_partitioned": "auto",
+    "grad_partitioned": "auto"
+  }
+}
